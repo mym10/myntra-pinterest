@@ -1,9 +1,9 @@
+//12 sec
 const express = require('express');
 const bodyParser = require("body-parser");
 const { ImageAnnotatorClient } = require('@google-cloud/vision');
 const { Client } = require('pg');
 const puppeteer = require('puppeteer');
-const axios = require('axios');
 
 // Google Cloud Vision API client instance
 const client = new ImageAnnotatorClient();
@@ -23,11 +23,11 @@ app.use(express.static("public"));
 
 // Function to scrape Pinterest board for image links
 async function getPinterestImageLinks(boardUrl) {
-  const browser = await puppeteer.launch({ headless: true }); // Set headless to true for production
+  const browser = await puppeteer.launch({headless: true});
   const page = await browser.newPage();
 
   try {
-    await page.goto(boardUrl, { waitUntil: 'networkidle2' });
+    await page.goto(boardUrl, {waitUntil: 'networkidle2'});
 
     // Extract image URLs using a unique Set
     const imageLinks = await page.evaluate(() => {
@@ -50,8 +50,8 @@ async function getPinterestImageLinks(boardUrl) {
 async function getImageDescriptions(imageUrl) {
   try {
     const [result] = await client.annotateImage({
-      image: { source: { imageUri: imageUrl } },
-      features: [{ type: 'WEB_DETECTION' }]
+      image: {source: {imageUri: imageUrl}},
+      features: [{type: 'WEB_DETECTION'}]
     });
     const webDetection = result.webDetection;
     if (webDetection && webDetection.webEntities) {
@@ -72,7 +72,7 @@ app.get("/", (req, res) => {
 
 app.post("/results", async (req, res) => {
   try {
-    const { pinterestUrl } = req.body;
+    const {pinterestUrl} = req.body;
 
     if (!pinterestUrl) {
       return res.status(400).json({ error: 'Pinterest URL is required' });
@@ -80,27 +80,25 @@ app.post("/results", async (req, res) => {
 
     //Get image links from Pinterest board
     const pinterestImageLinks = await getPinterestImageLinks(pinterestUrl);
-
-    //Fetch descriptions for each image from Pinterest and compare with database
-    const similarImagesSet = new Set();
-    for (const imageUrl of pinterestImageLinks) {
-      const imageDescriptions = await getImageDescriptions(imageUrl);
+    const imageDescriptionsarray = await Promise.all(pinterestImageLinks.map(imageUrl => getImageDescriptions(imageUrl)));
 
       //Query clothes table and compare descriptions
       const query = 'SELECT * FROM clothes';
-      const { rows } = await db.query(query);
+      const {rows} = await db.query(query);
 
+      const similarImagesSet = new Set();
       rows.forEach(row => {
         const descriptionsInDb = [row.description_1, row.description_2, row.description_3, row.description_4, row.description_5];
-        const matchCount = descriptionsInDb.filter(dbDesc => imageDescriptions.includes(dbDesc)).length;
 
-        if (matchCount >= 3) {
-          similarImagesSet.add(row.image);
-        }
+        imageDescriptionsarray.forEach(imageDescriptions => {
+          const matchCount = descriptionsInDb.filter(dbDesc => imageDescriptions.includes(dbDesc)).length;
+          if (matchCount >= 3) {
+            similarImagesSet.add(row.image);
+          }
+        });
       });
-    }
-    const similarImages = Array.from(similarImagesSet);
-    res.json({ similarImages });
+      const similarImages = Array.from(similarImagesSet);
+      res.json({ similarImages });
 
   } catch (error) {
     console.error("Error processing request:", error);
